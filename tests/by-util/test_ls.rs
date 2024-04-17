@@ -27,6 +27,7 @@ const LONG_ARGS: &[&str] = &[
     "-l",
     "--long",
     "--format=long",
+    "--format=lon",
     "--for=long",
     "--format=verbose",
     "--for=verbose",
@@ -35,6 +36,7 @@ const LONG_ARGS: &[&str] = &[
 const ACROSS_ARGS: &[&str] = &[
     "-x",
     "--format=across",
+    "--format=acr",
     "--format=horizontal",
     "--for=across",
     "--for=horizontal",
@@ -45,8 +47,86 @@ const COMMA_ARGS: &[&str] = &["-m", "--format=commas", "--for=commas"];
 const COLUMN_ARGS: &[&str] = &["-C", "--format=columns", "--for=columns"];
 
 #[test]
+fn test_invalid_flag() {
+    new_ucmd!()
+        .arg("--invalid-argument")
+        .fails()
+        .no_stdout()
+        .code_is(2);
+}
+
+#[test]
+fn test_invalid_value_returns_1() {
+    // Invalid values to flags *sometimes* result in error code 1:
+    for flag in [
+        "--classify",
+        "--color",
+        "--format",
+        "--hyperlink",
+        "--indicator-style",
+        "--quoting-style",
+        "--sort",
+        "--time",
+    ] {
+        new_ucmd!()
+            .arg(&format!("{flag}=definitely_invalid_value"))
+            .fails()
+            .no_stdout()
+            .code_is(1);
+    }
+}
+
+#[test]
+fn test_invalid_value_returns_2() {
+    // Invalid values to flags *sometimes* result in error code 2:
+    for flag in ["--block-size", "--width", "--tab-size"] {
+        new_ucmd!()
+            .arg(&format!("{flag}=definitely_invalid_value"))
+            .fails()
+            .no_stdout()
+            .code_is(2);
+    }
+}
+
+#[test]
+fn test_invalid_value_time_style() {
+    // This is the only flag which does not raise an error if it is invalid but not actually used:
+    new_ucmd!()
+        .arg("--time-style=definitely_invalid_value")
+        .succeeds()
+        .no_stderr()
+        .code_is(0);
+    // If it is used, error:
+    new_ucmd!()
+        .arg("-g")
+        .arg("--time-style=definitely_invalid_value")
+        .fails()
+        .no_stdout()
+        .code_is(2);
+    // If it only looks temporarily like it might be used, no error:
+    new_ucmd!()
+        .arg("-l")
+        .arg("--time-style=definitely_invalid_value")
+        .arg("--format=single-column")
+        .succeeds()
+        .no_stderr()
+        .code_is(0);
+}
+
+#[test]
 fn test_ls_ls() {
     new_ucmd!().succeeds();
+}
+
+#[test]
+fn test_ls_help() {
+    // Because we have to work around a lot of clap's error handling and
+    // modify the exit-code, this is actually non-trivial.
+    new_ucmd!()
+        .arg("--help")
+        .succeeds()
+        .stdout_contains("--version")
+        .no_stderr();
 }
 
 #[test]
@@ -921,6 +1001,8 @@ fn test_ls_zero() {
         let ignored_opts = [
             "--quoting-style=c",
             "--color=always",
+            "--color=alway",
+            "--color=al",
             "-m",
             "--hide-control-chars",
         ];
@@ -1525,6 +1607,24 @@ fn test_ls_deref() {
 
     let result = scene
         .ucmd()
+        .arg("-l")
+        .arg("--color=neve") // spell-checker:disable-line
+        .arg("test-long")
+        .arg("test-long.link")
+        .succeeds();
+    assert!(re.is_match(result.stdout_str().trim()));
+
+    let result = scene
+        .ucmd()
+        .arg("-l")
+        .arg("--color=n")
+        .arg("test-long")
+        .arg("test-long.link")
+        .succeeds();
+    assert!(re.is_match(result.stdout_str().trim()));
+
+    let result = scene
+        .ucmd()
         .arg("-L")
         .arg("--color=never")
         .arg("test-long")
@@ -1598,6 +1698,10 @@ fn test_ls_sort_none() {
     // Order is not specified so we just check that it doesn't
     // give any errors.
     scene.ucmd().arg("--sort=none").succeeds();
+    scene.ucmd().arg("--sort=non").succeeds();
+    scene.ucmd().arg("--sort=no").succeeds();
+    // scene.ucmd().arg("--sort=n").succeeds();
+    // We refuse to accept "--sort=n", since this is too confusable with "--sort=name", which is our own extension.
     scene.ucmd().arg("-U").succeeds();
 }
 
@@ -1613,6 +1717,16 @@ fn test_ls_sort_name() {
     scene
         .ucmd()
         .arg("--sort=name")
+        .succeeds()
+        .stdout_is("test-1\ntest-2\ntest-3\n");
+    scene
+        .ucmd()
+        .arg("--sort=nam")
+        .succeeds()
+        .stdout_is("test-1\ntest-2\ntest-3\n");
+    scene
+        .ucmd()
+        .arg("--sort=na")
         .succeeds()
         .stdout_is("test-1\ntest-2\ntest-3\n");
 
@@ -1651,6 +1765,16 @@ fn test_ls_sort_width() {
         .arg("--sort=width")
         .succeeds()
         .stdout_is("d\nzz\nabc\nbbb\neee\ncccc\naaaaa\nbcdef\nfffff\n");
+    scene
+        .ucmd()
+        .arg("--sort=widt") // spell-checker:disable-line
+        .succeeds()
+        .stdout_is("d\nzz\nabc\nbbb\neee\ncccc\naaaaa\nbcdef\nfffff\n");
+    scene
+        .ucmd()
+        .arg("--sort=w")
+        .succeeds()
+        .stdout_is("d\nzz\nabc\nbbb\neee\ncccc\naaaaa\nbcdef\nfffff\n");
 }
 
 #[test]
@@ -1677,6 +1801,12 @@ fn test_ls_order_size() {
     result.stdout_only("test-1\ntest-2\ntest-3\ntest-4\n");
 
     let result = scene.ucmd().arg("--sort=size").succeeds();
+    result.stdout_only("test-4\ntest-3\ntest-2\ntest-1\n");
+
+    let result = scene.ucmd().arg("--sort=siz").succeeds();
+    result.stdout_only("test-4\ntest-3\ntest-2\ntest-1\n");
+
+    let result = scene.ucmd().arg("--sort=s").succeeds();
     result.stdout_only("test-4\ntest-3\ntest-2\ntest-1\n");
 
     let result = scene.ucmd().arg("--sort=size").arg("-r").succeeds();
@@ -1883,7 +2013,14 @@ fn test_ls_order_time() {
 
     // 3 was accessed last in the read
     // So the order should be 2 3 4 1
-    for arg in ["-u", "--time=atime", "--time=access", "--time=use"] {
+    for arg in [
+        "-u",
+        "--time=atime",
+        "--time=atim", // spell-checker:disable-line
+        "--time=a",
+        "--time=access",
+        "--time=use",
+    ] {
         let result = scene.ucmd().arg("-t").arg(arg).succeeds();
         at.open("test-3").metadata().unwrap().accessed().unwrap();
         at.open("test-4").metadata().unwrap().accessed().unwrap();
@@ -2138,12 +2275,16 @@ fn test_ls_indicator_style() {
     for opt in [
         "--indicator-style=classify",
         "--ind=classify",
+        "--indicator-style=clas", // spell-checker:disable-line
+        "--indicator-style=c",
         "--indicator-style=file-type",
         "--ind=file-type",
         "--indicator-style=slash",
         "--ind=slash",
         "--classify",
         "--classify=always",
+        "--classify=alway", // spell-checker:disable-line
+        "--classify=al",
         "--classify=yes",
         "--classify=force",
         "--class",
@@ -2158,10 +2299,13 @@ fn test_ls_indicator_style() {
     // Classify, Indicator options should not contain any indicators when value is none.
     for opt in [
         "--indicator-style=none",
+        "--indicator-style=n",
         "--ind=none",
         "--classify=none",
         "--classify=never",
+        "--classify=non",
         "--classify=no",
+        "--classify=n",
     ] {
         // Verify that there are no indicators for any of the file types.
         scene
@@ -2475,6 +2619,12 @@ fn test_ls_version_sort() {
         expected
     );
 
+    let result = scene.ucmd().arg("-1").arg("--sort=v").succeeds();
+    assert_eq!(
+        result.stdout_str().split('\n').collect::<Vec<_>>(),
+        expected
+    );
+
     let result = scene.ucmd().arg("-a1v").succeeds();
     expected.insert(expected.len() - 1, "..");
     expected.insert(0, ".");
@@ -2511,19 +2661,27 @@ fn test_ls_quoting_style() {
 
         for (arg, correct) in [
             ("--quoting-style=literal", "one?two"),
+            ("--quoting-style=litera", "one?two"), // spell-checker:disable-line
+            ("--quoting-style=li", "one?two"),
             ("-N", "one?two"),
             ("--literal", "one?two"),
             ("--l", "one?two"),
             ("--quoting-style=c", "\"one\\ntwo\""),
+            ("--quoting-style=c-", "\"one\\ntwo\""),
+            ("--quoting-style=c-maybe", "\"one\\ntwo\""),
             ("-Q", "\"one\\ntwo\""),
             ("--quote-name", "\"one\\ntwo\""),
             ("--quoting-style=escape", "one\\ntwo"),
+            ("--quoting-style=escap", "one\\ntwo"), // spell-checker:disable-line
             ("-b", "one\\ntwo"),
             ("--escape", "one\\ntwo"),
             ("--quoting-style=shell-escape", "'one'$'\\n''two'"),
             ("--quoting-style=shell-escape-always", "'one'$'\\n''two'"),
+            ("--quoting-style=shell-escape-alway", "'one'$'\\n''two'"),
+            ("--quoting-style=shell-escape-a", "'one'$'\\n''two'"),
             ("--quoting-style=shell", "one?two"),
             ("--quoting-style=shell-always", "'one?two'"),
+            ("--quoting-style=shell-a", "'one?two'"),
         ] {
             scene
                 .ucmd()
@@ -4166,11 +4324,18 @@ fn test_ls_hyperlink() {
         .stdout_str()
         .contains(&format!("{path}{separator}{file}\x07{file}\x1b]8;;\x07")));
 
-    scene
-        .ucmd()
-        .arg("--hyperlink=never")
-        .succeeds()
-        .stdout_is(format!("{file}\n"));
+    for argument in [
+        "--hyperlink=never",
+        "--hyperlink=neve", // spell-checker:disable-line
+        "--hyperlink=ne",   // spell-checker:disable-line
+        "--hyperlink=n",
+    ] {
+        scene
+            .ucmd()
+            .arg(argument)
+            .succeeds()
+            .stdout_is(format!("{file}\n"));
+    }
 }
 
 // spell-checker: disable
